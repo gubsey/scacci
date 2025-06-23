@@ -3,8 +3,6 @@ fn main() {
 
     let ws = OneOf(b" \t\r\n").ignore();
     let castle = b"KQkq".into_iter().copied().map(One);
-
-    let x = (7,).extract();
 }
 
 enum Rank {
@@ -20,44 +18,6 @@ enum Color {
     White,
 }
 struct Piece(Color, Rank);
-
-pub trait Extract {
-    type Out;
-    fn extract(self) -> Self::Out;
-}
-
-type Unit<T> = (T,);
-fn unit<T>(a: T) -> Unit<T> {
-    (a,)
-}
-
-pub trait HList: Sized {
-    type Tuple: Tuple<HList = Self>;
-    fn flatten(self) -> Self::Tuple;
-}
-
-pub trait Tuple: Sized {
-    type HList: HList<Tuple = Self>;
-    fn hlist(self) -> Self::HList;
-
-    fn combine<T>(self, other: T) -> CombinedTuples<Self, T>
-    where
-        T: Tuple,
-        Self::HList: Combine<T::HList>,
-    {
-        self.hlist().combine(other.hlist()).flatten()
-    }
-}
-
-pub type CombinedTuples<T, U> =
-    <<<T as Tuple>::HList as Combine<<U as Tuple>::HList>>::Output as HList>::Tuple;
-
-// Combines Product together.
-pub trait Combine<T: HList> {
-    type Output: HList;
-
-    fn combine(self, other: T) -> Self::Output;
-}
 
 struct PieceMap;
 

@@ -10,17 +10,16 @@ use Color::*;
 use Rank::*;
 
 use crate::{
-    chess,
-    hlist::{Either, One, Tuple, one},
-    parse::{self, *},
+    hlist::{Either, One, one},
+    parse::*,
 };
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Color {
     White,
     Black,
 }
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Rank {
     Pawn,
     Rook,
@@ -30,9 +29,10 @@ pub enum Rank {
     King,
 }
 
-#[derive(Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Piece(pub Color, pub Rank);
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Chess {
     pub board: [[Option<Piece>; 8]; 8],
     pub turn: Color,
@@ -216,25 +216,72 @@ impl Parser for Chess {
     fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
         let ws = Unit(b' ').ignore();
 
-        let ((board, turn, castling, en_passant), xs) = PiecePositions
+        let ((board, turn), xs) = PiecePositions.and(ws).and(TurnParser).and(ws).parse(a)?;
+        let ((castling, en_passant), xs) = CastlePossibilitiesParser
             .and(ws)
-            .and(Unit(b'w').or(Unit(b'b')).pmap(|x| match x {
+            .and(SpaceParser.or(Unit(b'-').ignore()))
+            .and(ws)
+            .parse(xs)?;
+        let en_passant = en_passant.a().map(|x| x.0);
+        let ((halfmoves, fullmoves), xs) = Digit.many().and(ws).and(Digit.many()).parse(xs)?;
+        let mut mvs = [0; 2];
+        mvs.iter_mut()
+            .zip(
+                [halfmoves, fullmoves]
+                    .into_iter()
+                    .map(String::from_utf8)
+                    .map(Result::unwrap)
+                    .map(|s| s.parse::<usize>().unwrap()),
+            )
+            .for_each(|(a, b)| *a = b);
+        let [halfmoves, fullmoves] = mvs;
+
+        Some((
+            one(Self {
+                board,
+                turn,
+                castling,
+                en_passant,
+                halfmoves,
+                fullmoves,
+            }),
+            xs,
+        ))
+    }
+}
+
+#[test]
+fn chess_parse() {
+    let parsed = Chess::DEFAULT_START
+        .parse(STARTING_FEN.as_bytes())
+        .unwrap()
+        .0
+        .0;
+    assert_eq!(parsed, Chess::DEFAULT_START)
+}
+
+struct SpaceParser;
+impl Parser for SpaceParser {
+    type Extract = One<Vec2>;
+    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
+        let (x, xs) = (b'a'..=b'h')
+            .map(Unit)
+            .and((b'1'..=b'8').map(Unit))
+            .parse(a)?;
+        Some(((xy(x.0 as i32, x.1 as i32),), xs))
+    }
+}
+struct TurnParser;
+impl Parser for TurnParser {
+    type Extract = One<Color>;
+    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
+        Unit(b'w')
+            .or(Unit(b'b'))
+            .pmap(|x| match x {
                 Either::A(_) => White,
                 _ => Black,
-            }))
-            .and(ws)
-            .and(CastlePossibilitiesParser)
-            .and(ws)
-            .and(
-                (b'a'..=b'h')
-                    .map(Unit)
-                    .and((b'1'..=b'8').map(Unit))
-                    .or(Unit(b'-')),
-            )
-            .and(ws)
-            .parse(a)?;
-
-        None
+            })
+            .parse(a)
     }
 }
 
@@ -288,7 +335,7 @@ impl Vec2 {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CastlePossibilities {
     pub wq: bool,
     pub wk: bool,
@@ -325,7 +372,7 @@ impl Parser for PiecePositions {
             .map(Unit)
             .map(|x| {
                 x.pmap(|u| match u {
-                    n @ b'1'..b'8' => Err((n - b'0') as usize),
+                    n @ b'1'..=b'8' => Err((n - b'0') as usize),
                     b'p' => Ok(Piece(Black, Pawn)),
                     b'r' => Ok(Piece(Black, Rook)),
                     b'n' => Ok(Piece(Black, Knight)),
@@ -338,7 +385,7 @@ impl Parser for PiecePositions {
                     b'B' => Ok(Piece(White, Bishop)),
                     b'Q' => Ok(Piece(White, Queen)),
                     b'K' => Ok(Piece(White, King)),
-                    _ => unreachable!(),
+                    _ => unreachable!("{} is invalid", u as char),
                 })
             })
             .collect::<Vec<_>>();

@@ -1,10 +1,11 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{error::Error, fmt::Debug, sync::Arc};
 
 use crate::hlist::*;
 
 pub trait Parser {
     type Extract: Tuple;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])>;
+    type Err: Error;
+    fn parse(self, a: &[u8]) -> Result<(Self::Extract, &[u8]), Self::Err>;
 
     fn and<P: Parser>(self, other: P) -> And<Self, P>
     where
@@ -56,12 +57,27 @@ pub trait Parser {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ParserError {
+    Eof,
+    InvalidUnit(u8),
+}
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for ParserError {}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Any;
 impl Parser for Any {
     type Extract = (u8,);
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        a.first().map(|x| (one(*x), &a[1..]))
+    type Err = ParserError;
+    fn parse(self, a: &[u8]) -> Result<(Self::Extract, &[u8]), Self::Err> {
+        a.first()
+            .map(|x| (one(*x), &a[1..]))
+            .ok_or(ParserError::Eof)
     }
 }
 
@@ -69,9 +85,14 @@ impl Parser for Any {
 pub struct Unit(pub u8);
 impl Parser for Unit {
     type Extract = One<u8>;
+    type Err = ParserError;
 
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        Any.parse(a).filter(|(x, _)| x.0 == self.0)
+    fn parse(self, a: &[u8]) -> Result<(Self::Extract, &[u8]), Self::Err> {
+        Any.parse(a).and_then(|x| {
+            (x.0.0 == self.0)
+                .then_some(x)
+                .ok_or(ParserError::InvalidUnit(self.0))
+        })
     }
 }
 
@@ -79,10 +100,11 @@ impl Parser for Unit {
 pub struct Or<A: Parser, B: Parser>(pub A, pub B);
 impl<A: Parser, B: Parser> Parser for Or<A, B> {
     type Extract = One<Either<A::Extract, B::Extract>>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
+    type Err = ParserError;
+    fn parse(self, a: &[u8]) -> Result<(Self::Extract, &[u8]), Self::Err> {
         match self.0.parse(a) {
-            None => match self.1.parse(a) {
-                None => None,
+            Err(_) => match self.1.parse(a) {
+                Err(x) => Err(x),
                 Some((x, xs)) => Some((one(Either::B(x)), xs)),
             },
             Some((x, xs)) => Some((one(Either::A(x)), xs)),
@@ -162,5 +184,14 @@ impl<P: Parser> Parser for Ignore<P> {
     type Extract = ();
     fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
         self.0.parse(a).map(|x| ((), x.1))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Digit;
+impl Parser for Digit {
+    type Extract = One<u8>;
+    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
+        (b'0'..=b'9').map(Unit).parse(a)
     }
 }

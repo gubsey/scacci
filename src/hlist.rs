@@ -14,6 +14,22 @@ pub enum Either<T, U> {
     B(U),
 }
 
+impl<A, B> Either<A, B> {
+    pub fn a(self) -> Option<A> {
+        match self {
+            Self::A(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn b(self) -> Option<B> {
+        match self {
+            Self::B(x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
 // Converts Product (and ()) into tuples.
 pub trait HList: Sized {
     type Tuple: Tuple<HList = Self>;
@@ -239,5 +255,5 @@ generics! {
 
 #[test]
 fn test() {
-    let x = (1,2).hlist().0;
+    let x = (1, 2).hlist().0;
 }

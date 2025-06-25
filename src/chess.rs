@@ -8,11 +8,7 @@ use std::{
 
 use Color::*;
 use Rank::*;
-
-use crate::{
-    hlist::{Either, One, one},
-    parse::*,
-};
+use chumsky::{container::Seq, text::Char};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Color {
@@ -49,12 +45,12 @@ impl Chess {
         let mut board = [[None; 8]; 8];
         let mut i = 0;
         while i < 8 {
-            board[0][i] = Some(Piece(White, Self::BACK_ORDER[i]));
-            board[7][i] = Some(Piece(Black, Self::BACK_ORDER[i]));
+            board[7][i] = Some(Piece(White, Self::BACK_ORDER[i]));
+            board[0][i] = Some(Piece(Black, Self::BACK_ORDER[i]));
             i += 1;
         }
-        board[1] = [Some(Piece(White, Pawn)); 8];
-        board[6] = [Some(Piece(Black, Pawn)); 8];
+        board[6] = [Some(Piece(White, Pawn)); 8];
+        board[1] = [Some(Piece(Black, Pawn)); 8];
         Self {
             board,
             turn: White,
@@ -209,80 +205,131 @@ impl Chess {
     pub fn empty_or_takeable(&self, p: Vec2) -> bool {
         self.get(p).is_none_or(|v| v.0 != self.turn)
     }
-}
 
-impl Parser for Chess {
-    type Extract = One<Self>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        let ws = Unit(b' ').ignore();
+    pub fn parse_fen(fen: &str) -> chumsky::ParseResult<Chess, chumsky::error::Simple<'_, char>> {
+        use chumsky::prelude::*;
 
-        let ((board, turn), xs) = PiecePositions.and(ws).and(TurnParser).and(ws).parse(a)?;
-        let ((castling, en_passant), xs) = CastlePossibilitiesParser
-            .and(ws)
-            .and(SpaceParser.or(Unit(b'-').ignore()))
-            .and(ws)
-            .parse(xs)?;
-        let en_passant = en_passant.a().map(|x| x.0);
-        let ((halfmoves, fullmoves), xs) = Digit.many().and(ws).and(Digit.many()).parse(xs)?;
-        let mut mvs = [0; 2];
-        mvs.iter_mut()
-            .zip(
-                [halfmoves, fullmoves]
-                    .into_iter()
-                    .map(String::from_utf8)
-                    .map(Result::unwrap)
-                    .map(|s| s.parse::<usize>().unwrap()),
+        let p = one_of::<_, _, extra::Err<Simple<char>>>("prnbqkPRNBQK")
+            .map(|c: char| {
+                let rank = match c.to_ascii_lowercase() {
+                    'p' => Pawn,
+                    'r' => Rook,
+                    'n' => Knight,
+                    'b' => Bishop,
+                    'q' => Queen,
+                    'k' => King,
+                    _ => unreachable!(),
+                };
+                let color = if c.is_lowercase() { Black } else { White };
+                Piece(color, rank)
+            })
+            .boxed();
+
+        let bp = p
+            .map(Ok)
+            .or(one_of('1'..='8').map(|c: char| Err(c.to_digit(9).unwrap() as usize)))
+            .repeated()
+            .at_least(1)
+            .collect::<Vec<_>>()
+            .map(|x| {
+                x.into_iter()
+                    .flat_map(|r| match r {
+                        Ok(p) => vec![Some(p)],
+                        Err(i) => vec![None; i],
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .filter(|x| x.len() == 8)
+            .map(stack_collect::<8, _>)
+            .separated_by(just('/'))
+            .exactly(8)
+            .collect_exactly::<[_; 8]>()
+            .boxed();
+
+        let turnp = just('w')
+            .or(just('b'))
+            .map(|c| match c {
+                'w' => White,
+                'b' => Black,
+                _ => unreachable!(),
+            })
+            .boxed();
+
+        let castlep = one_of("kqKQ")
+            .repeated()
+            .at_least(1)
+            .at_most(4)
+            .collect::<Vec<_>>()
+            .map(|v| {
+                let mut cp = CastlePossibilities::default();
+                for x in v {
+                    match x {
+                        'k' => cp.bk = true,
+                        'q' => cp.bq = true,
+                        'K' => cp.wk = true,
+                        'Q' => cp.wq = true,
+                        _ => unreachable!(),
+                    }
+                }
+                cp
+            })
+            .or(just('-').map(|_| Default::default()))
+            .boxed();
+
+        let en_passantp = one_of('a'..='h')
+            .then(one_of('1'..='8'))
+            .map(|(x, y): (char, char)| xy((b'h' - x as u8) as i32, (b'8' - y as u8) as i32))
+            .map(Some)
+            .or(just('-').map(|_| None))
+            .boxed();
+
+        let number = one_of('0'..='9')
+            .repeated()
+            .at_least(1)
+            .collect::<String>()
+            .map(|s| s.parse().unwrap())
+            .boxed();
+
+        bp.then_ignore(just(' '))
+            .then(turnp)
+            .then_ignore(just(' '))
+            .then(castlep)
+            .then_ignore(just(' '))
+            .boxed()
+            .then(en_passantp)
+            .then_ignore(just(' '))
+            .boxed()
+            .then(number.clone())
+            .then_ignore(just(' '))
+            .then(number)
+            .boxed()
+            .map(
+                |(((((board, turn), castling), en_passant), halfmoves), fullmoves)| Chess {
+                    board,
+                    turn,
+                    castling,
+                    en_passant,
+                    halfmoves,
+                    fullmoves,
+                },
             )
-            .for_each(|(a, b)| *a = b);
-        let [halfmoves, fullmoves] = mvs;
-
-        Some((
-            one(Self {
-                board,
-                turn,
-                castling,
-                en_passant,
-                halfmoves,
-                fullmoves,
-            }),
-            xs,
-        ))
+            .parse(fen)
     }
 }
 
 #[test]
-fn chess_parse() {
-    let parsed = Chess::DEFAULT_START
-        .parse(STARTING_FEN.as_bytes())
-        .unwrap()
-        .0
-        .0;
-    assert_eq!(parsed, Chess::DEFAULT_START)
+fn parsing() {
+    let parsed = Chess::parse_fen(STARTING_FEN).unwrap();
+
+    assert_eq!(parsed, Chess::DEFAULT_START);
 }
 
-struct SpaceParser;
-impl Parser for SpaceParser {
-    type Extract = One<Vec2>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        let (x, xs) = (b'a'..=b'h')
-            .map(Unit)
-            .and((b'1'..=b'8').map(Unit))
-            .parse(a)?;
-        Some(((xy(x.0 as i32, x.1 as i32),), xs))
+fn stack_collect<const N: usize, T: Copy>(a: Vec<T>) -> [T; N] {
+    let mut arr: [T; N] = unsafe { std::mem::zeroed() };
+    for (i, x) in a.into_iter().enumerate() {
+        arr[i] = x;
     }
-}
-struct TurnParser;
-impl Parser for TurnParser {
-    type Extract = One<Color>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        Unit(b'w')
-            .or(Unit(b'b'))
-            .pmap(|x| match x {
-                Either::A(_) => White,
-                _ => Black,
-            })
-            .parse(a)
-    }
+    arr
 }
 
 impl Default for Chess {
@@ -341,78 +388,6 @@ pub struct CastlePossibilities {
     pub wk: bool,
     pub bq: bool,
     pub bk: bool,
-}
-
-#[derive(Default, Debug, Clone, Copy)]
-struct CastlePossibilitiesParser;
-impl Parser for CastlePossibilitiesParser {
-    type Extract = One<CastlePossibilities>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        let mut cp = CastlePossibilities::default();
-        for b in &a[..4] {
-            match b {
-                b'K' => cp.wk = true,
-                b'Q' => cp.wq = true,
-                b'k' => cp.bk = true,
-                b'q' => cp.bq = true,
-                _ => return None,
-            }
-        }
-        Some((one(cp), &a[4..]))
-    }
-}
-
-struct PiecePositions;
-impl Parser for PiecePositions {
-    type Extract = One<[[Option<Piece>; 8]; 8]>;
-    fn parse(self, a: &[u8]) -> Option<(Self::Extract, &[u8])> {
-        let vect = b"prnbqkPRNBQK12345678"
-            .iter()
-            .copied()
-            .map(Unit)
-            .map(|x| {
-                x.pmap(|u| match u {
-                    n @ b'1'..=b'8' => Err((n - b'0') as usize),
-                    b'p' => Ok(Piece(Black, Pawn)),
-                    b'r' => Ok(Piece(Black, Rook)),
-                    b'n' => Ok(Piece(Black, Knight)),
-                    b'b' => Ok(Piece(Black, Bishop)),
-                    b'q' => Ok(Piece(Black, Queen)),
-                    b'k' => Ok(Piece(Black, King)),
-                    b'P' => Ok(Piece(White, Pawn)),
-                    b'R' => Ok(Piece(White, Rook)),
-                    b'N' => Ok(Piece(White, Knight)),
-                    b'B' => Ok(Piece(White, Bishop)),
-                    b'Q' => Ok(Piece(White, Queen)),
-                    b'K' => Ok(Piece(White, King)),
-                    _ => unreachable!("{} is invalid", u as char),
-                })
-            })
-            .collect::<Vec<_>>();
-        let ((mut block, end), xs) = vect
-            .iter()
-            .copied()
-            .many()
-            .and(Unit(b'/').ignore())
-            .many_n(8)
-            .and(vect.iter().copied().many())
-            .parse(a)?;
-        block.push(end);
-
-        let mut r = [[None; 8]; 8];
-
-        for (y, row) in block.into_iter().enumerate() {
-            let mut offset = 0;
-            for (x, c) in row.into_iter().enumerate() {
-                match c {
-                    Ok(p) => r[y][x + offset] = Some(p),
-                    Err(n) => offset += n - 1,
-                }
-            }
-        }
-
-        Some((one(r), xs))
-    }
 }
 
 impl<T: AddAssign> Add for Vec2<T> {

@@ -1,14 +1,17 @@
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 use std::{
-    iter::{Successors, successors},
-    ops::{Add, AddAssign, Deref, Mul, MulAssign, Not, Sub, SubAssign},
+    fmt::Debug,
+    ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Not, Sub, SubAssign},
     str::FromStr,
 };
 
 use Color::*;
 use Rank::*;
+use chain_tools::Pipe;
 use chumsky::{container::Seq, text::Char};
+
+use crate::vec2::*;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Color {
@@ -28,7 +31,25 @@ pub enum Rank {
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Piece(pub Color, pub Rank);
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+impl Piece {
+    pub fn to_fen(&self) -> char {
+        let c = match self.1 {
+            Pawn => 'p',
+            Rook => 'r',
+            Knight => 'n',
+            Bishop => 'b',
+            Queen => 'q',
+            King => 'k',
+        };
+        if self.0 == White {
+            c.to_ascii_uppercase()
+        } else {
+            c
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
 pub struct Chess {
     pub board: [[Option<Piece>; 8]; 8],
     pub turn: Color,
@@ -206,114 +227,18 @@ impl Chess {
         self.get(p).is_none_or(|v| v.0 != self.turn)
     }
 
+    pub fn to_fen(&self) -> String {
+        crate::fen::chess_to_fen(self)
+    }
+
     pub fn parse_fen(fen: &str) -> chumsky::ParseResult<Chess, chumsky::error::Simple<'_, char>> {
-        use chumsky::prelude::*;
+        crate::fen::parse_fen(fen)
+    }
+}
 
-        let p = one_of::<_, _, extra::Err<Simple<char>>>("prnbqkPRNBQK")
-            .map(|c: char| {
-                let rank = match c.to_ascii_lowercase() {
-                    'p' => Pawn,
-                    'r' => Rook,
-                    'n' => Knight,
-                    'b' => Bishop,
-                    'q' => Queen,
-                    'k' => King,
-                    _ => unreachable!(),
-                };
-                let color = if c.is_lowercase() { Black } else { White };
-                Piece(color, rank)
-            })
-            .boxed();
-
-        let bp = p
-            .map(Ok)
-            .or(one_of('1'..='8').map(|c: char| Err(c.to_digit(9).unwrap() as usize)))
-            .repeated()
-            .at_least(1)
-            .collect::<Vec<_>>()
-            .map(|x| {
-                x.into_iter()
-                    .flat_map(|r| match r {
-                        Ok(p) => vec![Some(p)],
-                        Err(i) => vec![None; i],
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .filter(|x| x.len() == 8)
-            .map(stack_collect::<8, _>)
-            .separated_by(just('/'))
-            .exactly(8)
-            .collect_exactly::<[_; 8]>()
-            .boxed();
-
-        let turnp = just('w')
-            .or(just('b'))
-            .map(|c| match c {
-                'w' => White,
-                'b' => Black,
-                _ => unreachable!(),
-            })
-            .boxed();
-
-        let castlep = one_of("kqKQ")
-            .repeated()
-            .at_least(1)
-            .at_most(4)
-            .collect::<Vec<_>>()
-            .map(|v| {
-                let mut cp = CastlePossibilities::default();
-                for x in v {
-                    match x {
-                        'k' => cp.bk = true,
-                        'q' => cp.bq = true,
-                        'K' => cp.wk = true,
-                        'Q' => cp.wq = true,
-                        _ => unreachable!(),
-                    }
-                }
-                cp
-            })
-            .or(just('-').map(|_| Default::default()))
-            .boxed();
-
-        let en_passantp = one_of('a'..='h')
-            .then(one_of('1'..='8'))
-            .map(|(x, y): (char, char)| xy((b'h' - x as u8) as i32, (b'8' - y as u8) as i32))
-            .map(Some)
-            .or(just('-').map(|_| None))
-            .boxed();
-
-        let number = one_of('0'..='9')
-            .repeated()
-            .at_least(1)
-            .collect::<String>()
-            .map(|s| s.parse().unwrap())
-            .boxed();
-
-        bp.then_ignore(just(' '))
-            .then(turnp)
-            .then_ignore(just(' '))
-            .then(castlep)
-            .then_ignore(just(' '))
-            .boxed()
-            .then(en_passantp)
-            .then_ignore(just(' '))
-            .boxed()
-            .then(number.clone())
-            .then_ignore(just(' '))
-            .then(number)
-            .boxed()
-            .map(
-                |(((((board, turn), castling), en_passant), halfmoves), fullmoves)| Chess {
-                    board,
-                    turn,
-                    castling,
-                    en_passant,
-                    halfmoves,
-                    fullmoves,
-                },
-            )
-            .parse(fen)
+impl Debug for Chess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_fen())
     }
 }
 
@@ -324,61 +249,14 @@ fn parsing() {
     assert_eq!(parsed, Chess::DEFAULT_START);
 }
 
-fn stack_collect<const N: usize, T: Copy>(a: Vec<T>) -> [T; N] {
-    let mut arr: [T; N] = unsafe { std::mem::zeroed() };
-    for (i, x) in a.into_iter().enumerate() {
-        arr[i] = x;
-    }
-    arr
+#[test]
+fn to_fen_test() {
+    assert_eq!(Chess::DEFAULT_START.to_fen(), STARTING_FEN);
 }
 
 impl Default for Chess {
     fn default() -> Self {
         Self::DEFAULT_START
-    }
-}
-
-#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Vec2<T = i32> {
-    x: T,
-    y: T,
-}
-
-impl<T> Vec2<T> {
-    pub fn transposed(mut self) -> Self {
-        std::mem::swap(&mut self.x, &mut self.y);
-        self
-    }
-}
-
-impl Vec2 {
-    pub fn to_usize(self) -> Vec2<usize> {
-        Vec2::<usize> {
-            x: self.x as usize,
-            y: self.y as usize,
-        }
-    }
-
-    pub fn flipedy(mut self) -> Self {
-        self.y *= -1;
-        self
-    }
-    pub fn rotate90(&mut self) {
-        *self = self.rotated90()
-    }
-    pub fn rotated90(self) -> Self {
-        self.transposed().flipedy()
-    }
-    pub fn cardinals(self) -> Successors<Vec2, impl FnMut(&Vec2) -> Option<Vec2>> {
-        successors(Some(self), |x| Some(x.rotated90()))
-    }
-    pub fn in_bounds(&self) -> bool {
-        matches!(self.x, 0..8) && matches!(self.y, 0..8)
-    }
-    pub fn abs(mut self) -> Self {
-        self.x = self.x.abs();
-        self.y = self.y.abs();
-        self
     }
 }
 
@@ -390,82 +268,7 @@ pub struct CastlePossibilities {
     pub bk: bool,
 }
 
-impl<T: AddAssign> Add for Vec2<T> {
-    type Output = Self;
-    fn add(self, mut rhs: Self) -> Self::Output {
-        rhs.x += self.x;
-        rhs.y += self.y;
-        rhs
-    }
-}
-impl<T: AddAssign + Copy> Add<T> for Vec2<T> {
-    type Output = Self;
-    fn add(mut self, rhs: T) -> Self::Output {
-        self.x += rhs;
-        self.y += rhs;
-        self
-    }
-}
-impl<T: AddAssign> AddAssign for Vec2<T> {
-    fn add_assign(&mut self, rhs: Self) {
-        self.x += rhs.x;
-        self.y += rhs.y;
-    }
-}
-impl<T: SubAssign> Sub for Vec2<T> {
-    type Output = Self;
-    fn sub(mut self, rhs: Self) -> Self::Output {
-        self.x -= rhs.x;
-        self.y -= rhs.y;
-        self
-    }
-}
-impl<T: SubAssign> SubAssign for Vec2<T> {
-    fn sub_assign(&mut self, rhs: Self) {
-        self.x -= rhs.x;
-        self.y -= rhs.y;
-    }
-}
-impl<T: MulAssign> Mul for Vec2<T> {
-    type Output = Self;
-    fn mul(mut self, rhs: Self) -> Self::Output {
-        self.x *= rhs.x;
-        self.y *= rhs.y;
-        self
-    }
-}
-impl<T: MulAssign + Copy> Mul<T> for Vec2<T> {
-    type Output = Self;
-    fn mul(mut self, rhs: T) -> Self::Output {
-        self.x *= rhs;
-        self.y *= rhs;
-        self
-    }
-}
-pub fn xy<T>(x: T, y: T) -> Vec2<T> {
-    Vec2 { x, y }
-}
-
-impl FromStr for Vec2 {
-    type Err = &'static str;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let chars: Vec<char> = s.chars().collect();
-        if chars.len() != 2 {
-            return Err("string not exactly 2 chars");
-        }
-        let x = match chars[0] {
-            c @ 'a'..='h' => c as i32 - 'a' as i32,
-            _ => return Err("first char out of bounds"),
-        };
-        let y = match chars[1].to_digit(10).ok_or("second char not a number")? {
-            y @ 1..=8 => y as i32 - 1,
-            _ => return Err("second char not in range"),
-        };
-        Ok(Self { x, y })
-    }
-}
-
-pub struct March<T> {
+struct March<T> {
     by: T,
     at: T,
 }
@@ -485,7 +288,7 @@ impl<T: Copy + AddAssign> Iterator for March<T> {
     }
 }
 
-pub trait ToMarch {
+trait ToMarch {
     type Item;
     fn march(self) -> March<Self::Item>;
 }

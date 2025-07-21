@@ -2,14 +2,11 @@ pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ
 
 use std::{
     fmt::Debug,
-    ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Not, Sub, SubAssign},
-    str::FromStr,
+    ops::{AddAssign, Not},
 };
 
+use Class::*;
 use Color::*;
-use Rank::*;
-use chain_tools::Pipe;
-use chumsky::{container::Seq, text::Char};
 
 use crate::vec2::*;
 
@@ -19,7 +16,7 @@ pub enum Color {
     Black,
 }
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum Rank {
+pub enum Class {
     Pawn,
     Rook,
     Knight,
@@ -29,7 +26,7 @@ pub enum Rank {
 }
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct Piece(pub Color, pub Rank);
+pub struct Piece(pub Color, pub Class);
 
 impl Piece {
     pub fn to_fen(&self) -> char {
@@ -61,7 +58,7 @@ pub struct Chess {
 
 impl Chess {
     pub const DEFAULT_START: Self = Self::start();
-    const BACK_ORDER: [Rank; 8] = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
+    const BACK_ORDER: [Class; 8] = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
     const fn start() -> Self {
         let mut board = [[None; 8]; 8];
         let mut i = 0;
@@ -230,23 +227,12 @@ impl Chess {
     pub fn to_fen(&self) -> String {
         crate::fen::chess_to_fen(self)
     }
-
-    pub fn parse_fen(fen: &str) -> chumsky::ParseResult<Chess, chumsky::error::Simple<'_, char>> {
-        crate::fen::parse_fen(fen)
-    }
 }
 
 impl Debug for Chess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_fen())
     }
-}
-
-#[test]
-fn parsing() {
-    let parsed = Chess::parse_fen(STARTING_FEN).unwrap();
-
-    assert_eq!(parsed, Chess::DEFAULT_START);
 }
 
 #[test]

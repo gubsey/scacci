@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::RangeBounds};
 
 pub trait Stream<T>: Copy {
     fn one(self) -> Option<(T, Self)>;
@@ -80,6 +80,14 @@ impl<T> Parser<T, T> for Any {
     }
 }
 
+pub struct Range<R>(pub R);
+impl<T: PartialOrd, R: RangeBounds<T>> Parser<T, T> for Range<R> {
+    fn parse<S: Stream<T>>(self, s: S) -> Option<(T, S)> {
+        let (x, xs) = s.one()?;
+        self.0.contains(&x).then_some((x, xs))
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct One<T>(T);
 impl<T: PartialEq> Parser<T, T> for One<T> {
@@ -144,6 +152,15 @@ impl<So, O, P: Parser<So, O>> Parser<So, Vec<O>> for VecP<P> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct All<I>(I);
+impl<So, O, P: Parser<So, O>, I: Iterator<Item = P>> Parser<So, O> for All<I> {
+    fn parse<S: Stream<So>>(self, s: S) -> Option<(O, S)> {
+        
+        None
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Map<St, T, P: Parser<St, T>, F>(P, Box<F>, PhantomData<(St, T)>);
 impl<O, P: Parser<St, T>, F: FnOnce(T) -> O, T, St> Map<St, T, P, F> {
@@ -156,6 +173,16 @@ impl<T, St, O, P: Parser<St, T>, F: FnOnce(T) -> O> Parser<St, O> for Map<St, T,
         self.0.parse(s).map(|(x, xs)| ((self.1)(x), xs))
     }
 }
+
+#[macro_export]
+macro_rules! doh {
+    ($xs:ident = $s:expr; $($name:ident <- $f:expr);+ $(;)?) => {
+        let $xs = $s;
+        $(let ($name,$xs) = $f.parse($xs)?;)+
+    };
+}
+
+pub use doh;
 
 #[cfg(test)]
 mod tests {
@@ -172,5 +199,24 @@ mod tests {
         use super::*;
         let p = Map::new(Map::new(Any, |x: u8| x as char), |x| x.is_alphanumeric());
         let b = p.parse(b"7".as_ref()).unwrap();
+    }
+
+    #[test]
+    fn maybe() {
+        fn inner() -> Option<()> {
+            use super::*;
+            let p = One('a');
+            doh!(
+                xs = "apple";
+                _a1 <- p;
+                a2 <- p.maybe();
+                _p1 <- One('p');
+            );
+
+            assert!(a2.is_none());
+            assert_eq!(xs, "ple");
+            None
+        }
+        inner();
     }
 }

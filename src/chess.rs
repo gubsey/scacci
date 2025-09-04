@@ -8,13 +8,23 @@ use std::{
 use Class::*;
 use Color::*;
 
-use crate::vec2::*;
+use crate::{fen::fen_to_chess, notation::Notation, vec2::*};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Color {
     White,
     Black,
 }
+impl Not for Color {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            White => Black,
+            Black => White,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Class {
     Pawn,
@@ -27,15 +37,7 @@ pub enum Class {
 
 impl From<&str> for Class {
     fn from(value: &str) -> Self {
-        match value.as_bytes()[0].to_ascii_lowercase() {
-            b'p' => Pawn,
-            b'b' => Bishop,
-            b'n' => Knight,
-            b'r' => Rook,
-            b'q' => Queen,
-            b'k' => King,
-            _ => panic!("{value:?} is an invalid class"),
-        }
+        Self::from_byte(value.as_bytes()[0]).unwrap()
     }
 }
 
@@ -92,12 +94,12 @@ impl Chess {
         let mut board = [[None; 8]; 8];
         let mut i = 0;
         while i < 8 {
-            board[7][i] = Some(Piece(White, Self::BACK_ORDER[i]));
-            board[0][i] = Some(Piece(Black, Self::BACK_ORDER[i]));
+            board[0][i] = Some(Piece(White, Self::BACK_ORDER[i]));
+            board[7][i] = Some(Piece(Black, Self::BACK_ORDER[i]));
             i += 1;
         }
-        board[6] = [Some(Piece(White, Pawn)); 8];
-        board[1] = [Some(Piece(Black, Pawn)); 8];
+        board[1] = [Some(Piece(White, Pawn)); 8];
+        board[6] = [Some(Piece(Black, Pawn)); 8];
         Self {
             board,
             turn: White,
@@ -110,6 +112,21 @@ impl Chess {
             en_passant: None,
             halfmoves: 0,
             fullmoves: 1,
+        }
+    }
+
+    pub fn from_fen(fen: &str) -> Option<Self> {
+        fen_to_chess(fen)
+    }
+
+    pub fn moves(&self, class: Class, p: Vec2) -> Vec<Vec2> {
+        match class {
+            Pawn => self.pawn_moves(p),
+            Bishop => self.bishop_moves(p),
+            Knight => self.knight_moves(p),
+            Rook => self.rook_moves(p),
+            Queen => self.queen_moves(p),
+            King => self.king_moves(p),
         }
     }
 
@@ -175,19 +192,22 @@ impl Chess {
         } else {
             xy(0, -1)
         };
-        let mut r = vec![f1];
-        if matches!((p - r[0]).y, 0 | 7) {
-            r.push(r[0] * 2);
+
+        let mut r = vec![f1 + p];
+        if matches!(p.y, 1 | 6) {
+            r.push(f1 * 2 + p);
         }
-        r.iter_mut().for_each(|x| *x += p);
+        //r.iter_mut().for_each(|x| *x += p);
         if self.empty_or_takeable(r[0]).not() {
             r.clear();
-        } else if self.empty_or_takeable(r[1]).not() {
+        } else if r.len() == 2 && self.empty_or_takeable(r[1]).not() {
             r.remove(1);
         }
-        self.en_passant
-            .filter(|v| (f1 - *v).abs() == xy(1, 0))
-            .inspect(|v| r.push(*v));
+        if let Some(ep) = self.en_passant {
+            if (ep - (p + f1)).abs() == xy(1, 0) {
+                r.push(ep);
+            }
+        }
         r
     }
 
@@ -249,6 +269,10 @@ impl Chess {
             .flatten()
     }
 
+    pub fn get_mut(&mut self, p: Vec2) -> &mut Option<Piece> {
+        &mut self.board[p.y as usize][p.x as usize]
+    }
+
     pub fn empty_or_takeable(&self, p: Vec2) -> bool {
         self.get(p).is_none_or(|v| v.0 != self.turn)
     }
@@ -256,6 +280,83 @@ impl Chess {
     pub fn to_fen(&self) -> String {
         crate::fen::chess_to_fen(self)
     }
+
+    pub fn make_move(&mut self, from: Vec2, to: Vec2) -> Result<(), ChError> {
+        let Some(pf) = self.get(from) else {
+            return Err(ChError::TriedToMoveEmptySquare);
+        };
+
+        let movables = dbg!(self.moves(pf.1, from));
+        self.en_passant = None;
+
+        match pf.1 {
+            Pawn => {
+                if movables.get(1).is_some_and(|x| *x == to) {
+                    //  println!("enpy!");
+                    self.en_passant = Some(movables[0]);
+                    // dbg!(&self.en_passant);
+                }
+            }
+            _ => (),
+        }
+
+        *self.get_mut(to) = self.get_mut(from).take();
+        self.turn = !self.turn;
+
+        Ok(())
+    }
+
+    pub fn move_by_note(&mut self, note: Notation) -> Result<(), ChError> {
+        match note {
+            Notation::Standard {
+                rank_from,
+                file_from,
+                piece_class,
+                cap,
+                rank_to,
+                file_to,
+                checkmate,
+                check,
+                promote,
+            } => {
+                let pc = piece_class.unwrap_or(Pawn);
+                let cap = cap.is_some();
+                let check = check.is_some();
+                let checkmate = checkmate.is_some();
+                let vec_to = Vec2 {
+                    x: rank_to.0 as i32,
+                    y: file_to.0 as i32,
+                };
+
+                let possies = (0..8)
+                    .flat_map(|x| (0..8).map(move |y| Vec2 { x, y }))
+                    .collect::<Vec<_>>();
+
+                let pv = possies
+                    .into_iter()
+                    .filter(|v| rank_from.is_none_or(|x| x.0 as i32 == v.x))
+                    .filter(|v| file_from.is_none_or(|y| y.0 as i32 == v.y))
+                    .filter(|v| self.get(*v).is_some_and(|x| x.0 == self.turn && x.1 == pc))
+                    .filter(|v| self.moves(pc, *v).contains(&vec_to))
+                    .collect::<Vec<_>>();
+                match *pv.as_slice() {
+                    [v] => self.make_move(v, vec_to)?,
+                    [] => return Err(ChError::NoPiecesMatchMove),
+                    _ => return Err(ChError::TooManyPiecesMatchMove),
+                }
+            }
+            _ => todo!(),
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum ChError {
+    NoPiecesMatchMove,
+    TooManyPiecesMatchMove,
+    TriedToMoveEmptySquare,
 }
 
 impl Debug for Chess {

@@ -37,7 +37,7 @@ impl From<&str> for Dispose {
 #[structre::structre(
     "^(?<QueenCastle>0-0-0)|(?<KingCastle>0-0)|(?:(?<rank_from>[abcdefgh])?(?<file_from>[12345678])?(?<piece_class>[brnqkBRNQK])?(?<cap>x)?(?<rank_to>[abcdefgh])(?<file_to>[12345678])(?:[=/]?(?<promote>[brnqkBRNQK]))?)(?:(?<checkmate>(?:#)|(?:\\+\\+))?|(?<check>\\+)?)$"
 )]
-pub enum NotationRgx {
+pub enum Notation {
     QueenCastle(Dispose),
     KingCastle(Dispose),
     Standard {
@@ -51,25 +51,6 @@ pub enum NotationRgx {
         check: Option<Dispose>,
         promote: Option<Class>,
     },
-}
-
-#[derive(Debug)]
-pub enum Notation {
-    Standard {
-        from_rank: Option<usize>,
-        from_file: Option<usize>,
-        piece_rank: chess::Class,
-        to: [usize; 2],
-        promote: Option<chess::Class>,
-    },
-    KCastle,
-    QCastle,
-}
-
-pub fn parse_note(note: &str) -> Option<Notation> {
-    let caps = NotationRgx::from_str(note);
-    _ = dbg!(caps);
-    None
 }
 
 /*(

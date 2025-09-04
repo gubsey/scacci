@@ -1,6 +1,6 @@
 use std::{
     iter::{Successors, successors},
-    ops::{Add, AddAssign, Mul, MulAssign,  Sub, SubAssign},
+    ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign},
     str::FromStr,
 };
 
@@ -26,7 +26,7 @@ impl Vec2 {
     }
 
     pub fn to_fen(self) -> String {
-        String::from_utf8(vec![self.x as u8 + b'a', self.y as u8 + b'0']).unwrap()
+        String::from_utf8(vec![self.x as u8 + b'a', self.y as u8 + b'1']).unwrap()
     }
 
     pub fn flipedy(mut self) -> Self {

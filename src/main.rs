@@ -1,6 +1,6 @@
 use std::io::stdin;
 
-use scacci::{aparsetheid::*, notation::parse_note};
+use scacci::notation::parse_note;
 
 fn main() {
     let mut lines = stdin().lines();

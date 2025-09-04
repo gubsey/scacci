@@ -1,4 +1,3 @@
-pub mod aparsetheid;
 mod chess;
 mod fen;
 pub mod notation;

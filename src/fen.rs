@@ -2,8 +2,7 @@ use chain_tools::Pipe;
 
 use crate::{
     CastlePossibilities, Piece,
-    aparsetheid::Parser,
-    chess::{Chess, Color::*, Class::*},
+    chess::{Chess, Class::*, Color::*},
     vec2::*,
 };
 
@@ -65,11 +64,6 @@ pub fn chess_to_fen(chess: &Chess) -> String {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Fen;
-impl Parser<u8, Chess> for Fen {
-    fn parse<S: crate::aparsetheid::Stream<u8>>(self, s: S) -> Option<(Chess, S)> {
-        todo!()
-    }
-}
 
 fn stack_collect<const N: usize, T: Copy>(a: Vec<T>) -> [T; N] {
     let mut arr: [T; N] = unsafe { std::mem::zeroed() };

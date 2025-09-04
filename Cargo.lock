@@ -90,7 +90,6 @@ name = "scacci"
 version = "0.1.0"
 dependencies = [
  "chain_tools",
- "regex",
  "structre",
 ]
 

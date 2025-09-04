@@ -156,10 +156,11 @@ impl<So, O, P: Parser<So, O>> Parser<So, Vec<O>> for VecP<P> {
 pub struct All<I>(I);
 impl<So, O, P: Parser<So, O>, I: Iterator<Item = P>> Parser<So, O> for All<I> {
     fn parse<S: Stream<So>>(self, s: S) -> Option<(O, S)> {
-        
+        todo!();
         None
     }
 }
+
 
 #[derive(Clone, Debug)]
 pub struct Map<St, T, P: Parser<St, T>, F>(P, Box<F>, PhantomData<(St, T)>);

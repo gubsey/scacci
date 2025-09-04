@@ -25,6 +25,35 @@ pub enum Class {
     King,
 }
 
+impl From<&str> for Class {
+    fn from(value: &str) -> Self {
+        match value.as_bytes()[0].to_ascii_lowercase() {
+            b'p' => Pawn,
+            b'b' => Bishop,
+            b'n' => Knight,
+            b'r' => Rook,
+            b'q' => Queen,
+            b'k' => King,
+            _ => panic!("{value:?} is an invalid class"),
+        }
+    }
+}
+
+impl Class {
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        let c = match byte.to_ascii_lowercase() {
+            b'p' => Pawn,
+            b'b' => Bishop,
+            b'n' => Knight,
+            b'r' => Rook,
+            b'q' => Queen,
+            b'k' => King,
+            _ => return None,
+        };
+        Some(c)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Piece(pub Color, pub Class);
 

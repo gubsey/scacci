@@ -1,7 +1,9 @@
+use std::str::FromStr;
+
 use chain_tools::Pipe;
 
 use crate::{
-    CastlePossibilities, Piece,
+    CastlePossibilities, Class, Piece,
     chess::{Chess, Class::*, Color::*},
     vec2::*,
 };
@@ -11,6 +13,7 @@ pub fn chess_to_fen(chess: &Chess) -> String {
     let piece_map = chess
         .board
         .iter()
+        .rev()
         .enumerate()
         .map(|(i, a)| {
             let mut gap = 0;
@@ -62,8 +65,55 @@ pub fn chess_to_fen(chess: &Chess) -> String {
     )
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Fen;
+pub fn fen_to_chess(fen: &str) -> Option<Chess> {
+    let mut split = fen.split(' ');
+
+    let board_str = split.next()?;
+    let mut board = [[None; 8]; 8];
+    let mut x = 0;
+    let mut y = 0;
+    for &b in board_str.as_bytes() {
+        if b == b'/' {
+            x = 0;
+            y += 1;
+            continue;
+        }
+        let color = if b.is_ascii_uppercase() { White } else { Black };
+        let class = Class::from_byte(b)?;
+        board[y][x] = Some(Piece(color, class));
+        x += 1;
+    }
+
+    let turn = match split.next()? {
+        "w" => White,
+        "b" => Black,
+        _ => return None,
+    };
+
+    let castle_str = split.next()?;
+    let castling = CastlePossibilities {
+        wq: castle_str.contains('Q'),
+        wk: castle_str.contains('W'),
+        bq: castle_str.contains('q'),
+        bk: castle_str.contains('k'),
+    };
+
+    let en_passant = match split.next()? {
+        "-" => None,
+        other => Some(Vec2::from_str(other).ok()?),
+    };
+
+    let halfmoves = split.next()?.parse().ok()?;
+    let fullmoves = split.next()?.parse().ok()?;
+    Some(Chess {
+        board,
+        turn,
+        castling,
+        en_passant,
+        halfmoves,
+        fullmoves,
+    })
+}
 
 fn stack_collect<const N: usize, T: Copy>(a: Vec<T>) -> [T; N] {
     let mut arr: [T; N] = unsafe { std::mem::zeroed() };

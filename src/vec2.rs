@@ -25,6 +25,17 @@ impl Vec2 {
         }
     }
 
+    //normalizes to manhattan
+    pub fn normalize(mut self) -> Self {
+        if self.x != 0 {
+            self.x /= self.x.abs();
+        }
+        if self.y != 0 {
+            self.y /= self.y.abs();
+        }
+        self
+    }
+
     pub fn to_fen(self) -> String {
         String::from_utf8(vec![self.x as u8 + b'a', self.y as u8 + b'1']).unwrap()
     }

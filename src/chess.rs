@@ -79,6 +79,20 @@ impl Piece {
             c
         }
     }
+
+    pub fn from_fen(c: char) -> Option<Self> {
+        let class = match c.to_ascii_lowercase() {
+            'p' => Pawn,
+            'r' => Rook,
+            'n' => Knight,
+            'b' => Bishop,
+            'q' => Queen,
+            'k' => King,
+            _ => return None,
+        };
+        let side = if c.is_uppercase() { White } else { Black };
+        Some(Piece(side, class))
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -117,6 +131,19 @@ impl Chess {
             halfmoves: 0,
             fullmoves: 1,
         }
+    }
+
+    pub fn piece_positions(&self, piece: Piece) -> Vec<Vec2> {
+        self.board
+            .iter()
+            .enumerate()
+            .flat_map(|(y, row)| {
+                row.iter()
+                    .enumerate()
+                    .map(move |(x, p)| (xy(x as i32, y as i32), p))
+            })
+            .filter_map(|(xy, p)| p.filter(|p| *p == piece).map(|p| xy))
+            .collect()
     }
 
     pub fn from_fen(fen: &str) -> Result<Self, ParseFenError> {
@@ -225,7 +252,7 @@ impl Chess {
             .collect()
     }
 
-    pub fn in_check(&self) -> bool {
+    pub fn in_check_by(&self) -> Vec<Vec2> {
         let Some(k) = (0..8)
             .flat_map(|y| (0..8).map(move |x| xy(x, y)))
             .find(|v| {
@@ -233,39 +260,48 @@ impl Chess {
                     .is_some_and(|p| p.0 == self.turn && p.1 == King)
             })
         else {
-            return false;
+            return vec![];
         };
 
-        self.bishop_moves(k)
-            .into_iter()
-            .inspect(|x| println!("bishop {x:?}"))
-            .filter_map(|v| self.get(v))
-            .filter(|p| p.0 != self.turn)
-            .any(|p| matches!(p.1, Bishop | Queen))
-            || self
-                .rook_moves(k)
-                .into_iter()
-                .filter_map(|v| self.get(v))
-                .filter(|p| p.0 != self.turn)
-                .any(|p| matches!(p.1, Rook | Queen))
-            || self
-                .knight_moves(k)
-                .into_iter()
-                .filter_map(|v| self.get(v))
-                .filter(|p| p.0 != self.turn)
-                .any(|p| p.1 == Knight)
-            || self
-                .pawn_moves(k)
-                .into_iter()
-                .filter_map(|v| self.get(v))
-                .filter(|p| p.0 != self.turn)
-                .any(|p| matches!(p.1, Pawn))
-            || self
-                .king_moves(k)
-                .into_iter()
-                .filter_map(|v| self.get(v))
-                .filter(|p| p.0 != self.turn)
-                .any(|p| matches!(p.1, King))
+        macro_rules! pms {
+            ($moves:ident, $pat:pat) => {
+                self.$moves(k).into_iter().filter(|&v| {
+                    self.get(v)
+                        .is_some_and(|p| p.0 != self.turn && matches!(p.1, $pat))
+                })
+            };
+        }
+
+        pms!(bishop_moves, Bishop | Queen)
+            .chain(pms!(rook_moves, Rook | Queen))
+            .chain(pms!(knight_moves, Knight))
+            .chain(pms!(pawn_moves, Pawn))
+            .chain(pms!(king_moves, King))
+            .inspect(|x| {
+                self.can_block(*x, k);
+            })
+            .collect()
+    }
+
+    pub fn path_from(&self, src: Vec2, dst: Vec2) -> Vec<Vec2> {
+        if !matches!(self.get(src).map(|p| p.1), Some(Bishop | Queen | Rook)) {
+            return Vec::new();
+        }
+
+        let norm = (dst - src).normalize();
+        (1..)
+            .map(|x| norm * x)
+            .map(|x| src + x)
+            .take_while(|x| *x != dst)
+            .collect()
+    }
+
+    fn can_block(&self, src: Vec2, dst: Vec2) -> Vec<Vec2> {
+        vec![]
+    }
+
+    pub fn in_checkmate(&self, checkers: Vec<Vec2>) -> bool {
+        false
     }
 
     pub fn get(&self, p: Vec2) -> Option<Piece> {
@@ -306,7 +342,7 @@ impl Chess {
             }
             let old_to = self.get_mut(to).take();
             *self.get_mut(to) = self.get_mut(from).take();
-            if self.in_check() {
+            if !self.in_check_by().is_empty() {
                 *self.get_mut(from) = self.get_mut(to).take();
                 *self.get_mut(to) = old_to;
                 return Err(ChError::MoveIntoCheck);
@@ -314,10 +350,11 @@ impl Chess {
             self.turn = !self.turn;
         }
 
-        Ok(if self.in_check() {
-            ChState::Check
-        } else {
+        let v = self.in_check_by();
+        Ok(if v.is_empty() {
             ChState::Normal
+        } else {
+            ChState::Check(v)
         })
     }
 
@@ -382,9 +419,9 @@ pub enum ChError {
     MoveIntoCheck,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ChState {
-    Check,
+    Check(Vec<Vec2>),
     CheckMate,
     StaleMate,
     Normal,

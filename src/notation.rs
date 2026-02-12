@@ -35,7 +35,7 @@ impl From<&str> for Dispose {
 
 #[derive(Debug, Clone, Copy)]
 #[structre::structre(
-    "^(?<QueenCastle>0-0-0)|(?<KingCastle>0-0)|(?:(?<rank_from>[abcdefgh])?(?<file_from>[12345678])?(?<piece_class>[brnqkBRNQK])?(?<cap>x)?(?<rank_to>[abcdefgh])(?<file_to>[12345678])(?:[=/]?(?<promote>[brnqkBRNQK]))?)(?:(?<checkmate>(?:#)|(?:\\+\\+))?|(?<check>\\+)?)$"
+    "^(?<QueenCastle>0-0-0)|(?<KingCastle>0-0)|(?:(?<rank_from>[abcdefgh])?(?<file_from>[12345678])?(?<piece_class>[BRNQK])?(?<cap>x)?(?<rank_to>[abcdefgh])(?<file_to>[12345678])(?:[=/]?(?<promote>[BRNQK]))?)(?:(?<checkmate>(?:#)|(?:\\+\\+))?|(?<check>\\+)?)$"
 )]
 pub enum Notation {
     QueenCastle(Dispose),

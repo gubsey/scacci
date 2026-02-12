@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{convert::Infallible, str::FromStr};
 
 use chain_tools::Pipe;
 
@@ -65,10 +65,27 @@ pub fn chess_to_fen(chess: &Chess) -> String {
     )
 }
 
-pub fn fen_to_chess(fen: &str) -> Option<Chess> {
+#[derive(Debug)]
+pub enum ParseFenError {
+    MissingBoard,
+    MissingTurn,
+    MissingCastle,
+    MissingEnPasssant,
+    MissingHalfmoves,
+    MissingFullmoves,
+    InvalidClass(char),
+    InvalidBoard(String),
+    InvalidTurn(String),
+    InvalidEnPassant(String),
+    InvalidHalfmoves,
+    InvalidFullmoves,
+}
+
+pub fn fen_to_chess(fen: &str) -> Result<Chess, ParseFenError> {
+    use ParseFenError::*;
     let mut split = fen.split(' ');
 
-    let board_str = split.next()?;
+    let board_str = split.next().ok_or(MissingBoard)?;
     let mut board = [[None; 8]; 8];
     let mut x = 0;
     let mut y = 0;
@@ -78,19 +95,26 @@ pub fn fen_to_chess(fen: &str) -> Option<Chess> {
             y += 1;
             continue;
         }
+        if b.is_ascii_digit() {
+            x += (b - b'0' - 1) as usize;
+            if x > 7 {
+                return Err(InvalidBoard(format!("board row {y} is too long")));
+            }
+            continue;
+        }
         let color = if b.is_ascii_uppercase() { White } else { Black };
-        let class = Class::from_byte(b)?;
+        let class = Class::from_byte(b).ok_or(InvalidClass(b as char))?;
         board[y][x] = Some(Piece(color, class));
         x += 1;
     }
 
-    let turn = match split.next()? {
+    let turn = match split.next().ok_or(MissingTurn)? {
         "w" => White,
         "b" => Black,
-        _ => return None,
+        o => return Err(InvalidTurn(o.to_string())),
     };
 
-    let castle_str = split.next()?;
+    let castle_str = split.next().ok_or(MissingCastle)?;
     let castling = CastlePossibilities {
         wq: castle_str.contains('Q'),
         wk: castle_str.contains('W'),
@@ -98,14 +122,22 @@ pub fn fen_to_chess(fen: &str) -> Option<Chess> {
         bk: castle_str.contains('k'),
     };
 
-    let en_passant = match split.next()? {
+    let en_passant = match split.next().ok_or(MissingEnPasssant)? {
         "-" => None,
-        other => Some(Vec2::from_str(other).ok()?),
+        other => Some(Vec2::from_str(other).map_err(|_| InvalidEnPassant(other.to_string()))?),
     };
 
-    let halfmoves = split.next()?.parse().ok()?;
-    let fullmoves = split.next()?.parse().ok()?;
-    Some(Chess {
+    let halfmoves = split
+        .next()
+        .ok_or(MissingHalfmoves)?
+        .parse()
+        .map_err(|_| InvalidHalfmoves)?;
+    let fullmoves = split
+        .next()
+        .ok_or(MissingFullmoves)?
+        .parse()
+        .map_err(|_| InvalidFullmoves)?;
+    Ok(Chess {
         board,
         turn,
         castling,

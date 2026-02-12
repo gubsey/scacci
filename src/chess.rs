@@ -1,7 +1,6 @@
 pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 use std::{
-    collections::HashMap,
     fmt::Debug,
     ops::{AddAssign, Not},
 };
@@ -9,7 +8,11 @@ use std::{
 use Class::*;
 use Color::*;
 
-use crate::{fen::fen_to_chess, notation::Notation, vec2::*};
+use crate::{
+    fen::{ParseFenError, fen_to_chess},
+    notation::Notation,
+    vec2::*,
+};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Color {
@@ -116,7 +119,7 @@ impl Chess {
         }
     }
 
-    pub fn from_fen(fen: &str) -> Option<Self> {
+    pub fn from_fen(fen: &str) -> Result<Self, ParseFenError> {
         fen_to_chess(fen)
     }
 
@@ -204,10 +207,10 @@ impl Chess {
         } else if r.len() == 2 && self.empty_or_takeable(r[1]).not() {
             r.remove(1);
         }
-        if let Some(ep) = self.en_passant {
-            if (ep - (p + f1)).abs() == xy(1, 0) {
-                r.push(ep);
-            }
+        if let Some(ep) = self.en_passant
+            && (ep - (p + f1)).abs() == xy(1, 0)
+        {
+            r.push(ep);
         }
         r
     }
@@ -215,7 +218,8 @@ impl Chess {
     pub fn king_moves(&self, p: Vec2) -> Vec<Vec2> {
         xy(0, 1)
             .cardinals()
-            .chain(xy(1, 1).cardinals())
+            .take(4)
+            .chain(xy(1, 1).cardinals().take(4))
             .map(|x| x + p)
             .filter(|x| self.empty_or_takeable(*x))
             .collect()
@@ -234,6 +238,7 @@ impl Chess {
 
         self.bishop_moves(k)
             .into_iter()
+            .inspect(|x| println!("bishop {x:?}"))
             .filter_map(|v| self.get(v))
             .filter(|p| p.0 != self.turn)
             .any(|p| matches!(p.1, Bishop | Queen))
@@ -282,33 +287,42 @@ impl Chess {
         crate::fen::chess_to_fen(self)
     }
 
-    pub fn make_move(&mut self, from: Vec2, to: Vec2) -> Result<(), ChError> {
+    pub fn make_move(&mut self, from: Vec2, to: Vec2) -> Result<ChState, ChError> {
         let Some(pf) = self.get(from) else {
             return Err(ChError::TriedToMoveEmptySquare);
         };
 
-        let movables = dbg!(self.moves(pf.1, from));
-        self.en_passant = None;
+        let movables = self.moves(pf.1, from);
 
-        match pf.1 {
-            Pawn => {
-                if movables.get(1).is_some_and(|x| *x == to) {
-                    //  println!("enpy!");
+        if movables.contains(&to) {
+            let ep = self.en_passant.take();
+            if pf.1 == Pawn {
+                if from.y.abs_diff(to.y) == 2 {
                     self.en_passant = Some(movables[0]);
-                    // dbg!(&self.en_passant);
+                }
+                if ep.is_some_and(|ep| ep == to) {
+                    self.get_mut(xy(to.x, from.y)).take();
                 }
             }
-            _ => (),
+            let old_to = self.get_mut(to).take();
+            *self.get_mut(to) = self.get_mut(from).take();
+            if self.in_check() {
+                *self.get_mut(from) = self.get_mut(to).take();
+                *self.get_mut(to) = old_to;
+                return Err(ChError::MoveIntoCheck);
+            }
+            self.turn = !self.turn;
         }
 
-        *self.get_mut(to) = self.get_mut(from).take();
-        self.turn = !self.turn;
-
-        Ok(())
+        Ok(if self.in_check() {
+            ChState::Check
+        } else {
+            ChState::Normal
+        })
     }
 
-    pub fn move_by_note(&mut self, note: Notation) -> Result<(), ChError> {
-        match note {
+    pub fn move_by_note(&mut self, note: Notation) -> Result<ChState, ChError> {
+        Ok(match note {
             Notation::Standard {
                 rank_from,
                 file_from,
@@ -329,6 +343,13 @@ impl Chess {
                     y: file_to.0 as i32,
                 };
 
+                if cap && self.get(vec_to).is_none() {
+                    return Err(ChError::FailedToCaptureEmptySquare);
+                }
+                if self.get(vec_to).is_some_and(|p| p.0 == self.turn) {
+                    return Err(ChError::DestinationOccupiedByFriendlyPiece);
+                }
+
                 let possies = (0..8)
                     .flat_map(|x| (0..8).map(move |y| Vec2 { x, y }))
                     .collect::<Vec<_>>();
@@ -347,9 +368,7 @@ impl Chess {
                 }
             }
             _ => todo!(),
-        }
-
-        Ok(())
+        })
     }
 }
 
@@ -358,6 +377,17 @@ pub enum ChError {
     NoPiecesMatchMove,
     TooManyPiecesMatchMove,
     TriedToMoveEmptySquare,
+    FailedToCaptureEmptySquare,
+    DestinationOccupiedByFriendlyPiece,
+    MoveIntoCheck,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ChState {
+    Check,
+    CheckMate,
+    StaleMate,
+    Normal,
 }
 
 impl Debug for Chess {
@@ -413,6 +443,6 @@ impl<T: Copy + AddAssign> ToMarch for T {
 
 #[test]
 fn tyler2e() {
-    let mut map = HashMap::new();
+    let mut map = std::collections::HashMap::new();
     map.insert(7, 7);
 }

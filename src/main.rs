@@ -5,11 +5,7 @@ use std::{
 };
 
 use clap::Parser;
-use scacci::{
-    Chess, Color, Piece,
-    notation::Notation,
-    vec2::{Vec2, xy},
-};
+use scacci::{Chess, Color, Notation, Piece, Vec2, xy};
 
 #[derive(clap::Parser)]
 struct FArgs {

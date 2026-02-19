@@ -62,12 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chain_tools"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed26a1f51a981c7749e4b0dd5429ee2ef4439172a650a53196a2bb75efc50dfb"
-
-[[package]]
 name = "clap"
 version = "4.5.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -203,7 +197,6 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 name = "scacci"
 version = "0.1.0"
 dependencies = [
- "chain_tools",
  "clap",
  "structre",
 ]

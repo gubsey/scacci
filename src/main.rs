@@ -1,6 +1,6 @@
 use std::{
     io::{Write, stdin, stdout},
-    iter::repeat,
+    process::exit,
     str::FromStr,
 };
 
@@ -26,26 +26,57 @@ fn main() {
     } else {
         Chess::default()
     };
-    print_chess(&chess, vec![]);
+    print_chess(&chess, &[]);
     while let Some(Ok(line)) = lines.next() {
         if let Some(cmd) = line.strip_prefix("/") {
             match cmd.split(' ').collect::<Vec<_>>().as_slice() {
+                ["quit"] => {
+                    println!("Goodbye");
+                    return;
+                }
                 ["fen"] => println!("{}", chess.to_fen()),
+                ["pb", s @ ..] => print_chess(
+                    &chess,
+                    s.iter()
+                        .filter_map(|s| {
+                            Vec2::from_str(s)
+                                .inspect_err(|x| println!("error: {x}"))
+                                .ok()
+                        })
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                ),
+                ["moves", p] => {
+                    if let Ok(p) = Vec2::from_str(p) {
+                        if let Some(class) = chess.get(p).map(|x| x.1) {
+                            let moves = chess.moves(class, p);
+                            print_chess(&chess, &moves);
+                        }
+                    }
+                }
                 ["hist"] => note_log.iter().for_each(|x| println!("{x}")),
+                ["restart"] | ["reset"] => chess = Chess::DEFAULT_START,
                 ["spawn", piece, pos] => {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) =
                         Piece::from_fen(piece.as_bytes()[0] as char);
-                    print_chess(&chess, vec![]);
+                    print_chess(&chess, &[]);
                 }
+                ["kill", "all"] => chess.board.iter_mut().flatten().for_each(|x| *x = None),
                 ["kill", pos] => {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) = None;
-                    print_chess(&chess, vec![]);
+                    print_chess(&chess, &[]);
                 }
                 _ => println!("invalid command"),
             }
             continue;
         }
-        let note = Notation::from_str(&line).unwrap();
+        let note = match Notation::from_str(&line) {
+            Ok(note) => note,
+            Err(e) => {
+                println!("Error {e}");
+                continue;
+            }
+        };
         let mut markings = Vec::new();
         match chess.move_by_note(note) {
             Ok(scacci::ChState::Check(v)) => {
@@ -61,30 +92,22 @@ fn main() {
             _ => {}
         }
         note_log.push(line);
-        print_chess(&chess, markings);
+        print_chess(&chess, &markings);
     }
 }
 
-fn print_chess(chess: &Chess, markings: Vec<Vec2>) {
-    println!("{}", chess.to_fen());
-    let iter = chess.board.iter().enumerate();
-
-    let vecty: Vec<_> = if chess.turn == Color::White {
-        iter.rev().collect()
-    } else {
-        iter.collect()
-    };
-
+fn print_chess(chess: &Chess, markings: &[Vec2]) {
     for (y, row) in chess.board.iter().enumerate() {
         print!("{} | ", y + 1);
 
         for (x, p) in row.iter().enumerate() {
-            if let Some(p) = p {
-                print!("{} ", p.to_fen());
-            } else if markings.contains(&xy(x as i32, y as i32)) {
-                print!("x ")
-            } else {
-                print!("- ");
+            match (p, markings.contains(&xy(x as i32, y as i32))) {
+                (Some(p), true) => {
+                    print!("\x1b[4m{}\x1b[0m ", p.to_fen())
+                }
+                (Some(p), false) => print!("{} ", p.to_fen()),
+                (None, true) => print!("x "),
+                (None, false) => print!("- "),
             }
         }
         println!();

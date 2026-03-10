@@ -11,6 +11,8 @@ use scacci::{Chess, Color, Notation, Piece, Vec2, xy};
 struct FArgs {
     #[arg(short)]
     fen: Option<String>,
+    #[arg(short)]
+    quiet: bool,
 }
 
 fn main() {
@@ -22,12 +24,15 @@ fn main() {
     } else {
         Chess::default()
     };
-    print_chess(&chess, vec![]);
+    if !args.quiet {
+        print_chess(&chess, vec![]);
+    }
     while let Some(Ok(line)) = lines.next() {
         if let Some(cmd) = line.strip_prefix("/") {
             match cmd.split(' ').collect::<Vec<_>>().as_slice() {
                 ["fen"] => println!("{}", chess.to_fen()),
                 ["hist"] => note_log.iter().for_each(|x| println!("{x}")),
+                ["print"] => print_chess(&chess, vec![]),
                 ["spawn", piece, pos] => {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) =
                         Piece::from_fen(piece.as_bytes()[0] as char);
@@ -37,11 +42,31 @@ fn main() {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) = None;
                     print_chess(&chess, vec![]);
                 }
+                ["moves", pos] => {
+                    let Ok(v) = Vec2::from_str(pos) else {
+                        println!("Invalid Position");
+                        continue;
+                    };
+                    let Some(p) = chess.get(v) else {
+                        println!("no piece there");
+                        continue;
+                    };
+                    if p.0 != chess.turn {
+                        println!("wrong color");
+                    }
+                    print_chess(&chess, chess.moves(p.1, v));
+                }
                 _ => println!("invalid command"),
             }
             continue;
         }
-        let note = Notation::from_str(&line).unwrap();
+        let note = match Notation::from_str(&line) {
+            Ok(x) => x,
+            Err(e) => {
+                println!("Error {e}");
+                continue;
+            }
+        };
         let mut markings = Vec::new();
         match chess.move_by_note(note) {
             Ok(scacci::ChState::Check(v)) => {
@@ -57,7 +82,9 @@ fn main() {
             _ => {}
         }
         note_log.push(line);
-        print_chess(&chess, markings);
+        if !args.quiet {
+            print_chess(&chess, markings);
+        }
     }
 }
 

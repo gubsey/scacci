@@ -25,7 +25,7 @@ fn main() {
         Chess::default()
     };
     if !args.quiet {
-        print_chess(&chess, vec![]);
+        print_chess(&chess, &[]);
     }
     while let Some(Ok(line)) = lines.next() {
         if let Some(cmd) = line.strip_prefix("/") {
@@ -55,7 +55,7 @@ fn main() {
                     }
                 }
                 ["hist"] => note_log.iter().for_each(|x| println!("{x}")),
-                ["print"] => print_chess(&chess, vec![]),
+                ["print"] => print_chess(&chess, &[]),
                 ["restart"] | ["reset"] => chess = Chess::DEFAULT_START,
                 ["spawn", piece, pos] => {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) =
@@ -79,7 +79,7 @@ fn main() {
                     if p.0 != chess.turn {
                         println!("wrong color");
                     }
-                    print_chess(&chess, chess.moves(p.1, v));
+                    print_chess(&chess, &chess.moves(p.1, v));
                 }
                 _ => println!("invalid command"),
             }
@@ -108,7 +108,7 @@ fn main() {
         }
         note_log.push(line);
         if !args.quiet {
-            print_chess(&chess, markings);
+            print_chess(&chess, &markings);
         }
     }
 }

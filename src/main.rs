@@ -24,13 +24,9 @@ fn main() {
     } else {
         Chess::default()
     };
-<<<<<<< HEAD
     if !args.quiet {
         print_chess(&chess, vec![]);
     }
-=======
-    print_chess(&chess, &[]);
->>>>>>> refs/remotes/origin/master
     while let Some(Ok(line)) = lines.next() {
         if let Some(cmd) = line.strip_prefix("/") {
             match cmd.split(' ').collect::<Vec<_>>().as_slice() {
@@ -59,11 +55,8 @@ fn main() {
                     }
                 }
                 ["hist"] => note_log.iter().for_each(|x| println!("{x}")),
-<<<<<<< HEAD
                 ["print"] => print_chess(&chess, vec![]),
-=======
                 ["restart"] | ["reset"] => chess = Chess::DEFAULT_START,
->>>>>>> refs/remotes/origin/master
                 ["spawn", piece, pos] => {
                     *chess.get_mut(Vec2::from_str(pos).unwrap()) =
                         Piece::from_fen(piece.as_bytes()[0] as char);
@@ -93,11 +86,7 @@ fn main() {
             continue;
         }
         let note = match Notation::from_str(&line) {
-<<<<<<< HEAD
             Ok(x) => x,
-=======
-            Ok(note) => note,
->>>>>>> refs/remotes/origin/master
             Err(e) => {
                 println!("Error {e}");
                 continue;
@@ -118,13 +107,9 @@ fn main() {
             _ => {}
         }
         note_log.push(line);
-<<<<<<< HEAD
         if !args.quiet {
             print_chess(&chess, markings);
         }
-=======
-        print_chess(&chess, &markings);
->>>>>>> refs/remotes/origin/master
     }
 }
 
